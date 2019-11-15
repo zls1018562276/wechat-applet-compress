@@ -1,0 +1,203 @@
+<template>
+    <block wx:for="{{imgInfo}}" wx:key="index" wx-item="item">
+        <canvas canvas-id="{{item.canvasId}}" style="width:{{item.width}}px;height:{{item.height}}px;position: fixed;left:{{1000 + item.width * 1}}px;top:{{1000 + item.height * 1}}px;"></canvas>
+    </block>
+</template>
+<script>
+import wepy from 'wepy'
+export default class Compress extends wepy.component{
+    /**
+     * @param needCompressSize 需要压缩的图片大小，单位MB，默认0.5MB以上的图片会被压缩
+     * @param uploadUrl 上传到服务器所需的api接口，默认不提供则返回本地暂存路径
+     * @param tempFiles 需要压缩的图片路径数组（支持线上图片则需要在微信后台设置安全域名）
+     * @param ctxWidth 压缩图片宽度限制，默认800px
+     * @param ctxHeight 压缩图片高度限制，默认800px
+    */
+    props = {
+        needCompressSize: {
+            type: Number,
+            default: 0.5
+        },
+        uploadUrl: {
+            type: String,
+            default: ''
+        },
+        tempFiles: {
+            type: Array,
+            default: []
+        },
+        ctxWidth: {
+            type: Number,
+            default: 800
+        },
+        ctxHeight: {
+            type: Number,
+            default: 800
+        }
+    }
+    data = {
+        imgInfo: Array,
+        afterUrls: [], // 处理后的图片地址
+    }
+    compress() {
+        let th = this
+        return new Promise((resolve)=>{
+            new Promise((resol)=>{
+                let urls = [] // 暂存压缩后的urls
+                let count = 0
+                wx.showToast({
+                    title: '压缩并上传中...',
+                    icon: 'loading',  
+                    mask: true,  
+                    duration: 100000
+                })
+                for(let i = 0; i < th.imgInfo.length; i++) { // 压缩
+                    if (th.imgInfo[i].size/1024/1024 < th.needCompressSize) {
+                        urls.push(th.imgInfo[i].path)
+                        count ++
+                        if (count == th.imgInfo.length) {
+                            resol(urls)
+                        }
+                    } else {
+                        let ctx = wx.createCanvasContext(th.imgInfo[i].canvasId)
+                        let ctxWidth = th.imgInfo[i].width
+                        let ctxHeight = th.imgInfo[i].height
+                        let ratio = 2
+                        while (ctxWidth > th.ctxWidth && ctxHeight > th.ctxHeight){// 保证宽或高800以内
+                            ctxWidth = Math.trunc(th.imgInfo[i].width / ratio)
+                            ctxHeight = Math.trunc(th.imgInfo[i].height / ratio)
+                            ratio++;
+                        }
+                        th.imgInfo[i].width = ctxWidth
+                        th.imgInfo[i].height = ctxHeight
+                        th.$apply()
+                        ctx.drawImage(th.imgInfo[i].path, 0, 0, ctxWidth, ctxHeight)
+                        ctx.draw(false,setTimeout(()=>{ // 延迟防止出现图片空白
+                            wx.canvasToTempFilePath({
+                                canvasId: th.imgInfo[i].canvasId,
+                                destWidth: ctxWidth,
+                                destHeight: ctxHeight,
+                                fileType: th.imgInfo[i].type,
+                                success: function (res) {
+                                    count ++
+                                    urls.push(res.tempFilePath)
+                                    if (count == th.imgInfo.length) {
+                                        resol(urls)
+                                    }
+                                }
+                            })
+                        },1000))
+                    }
+                }
+            }).then((urls)=>{
+                console.log(urls) // 本地图片
+                if (th.uploadUrl) {
+                    let count = 0
+                    let error = ''
+                    let endUrls = [] // 暂存上传后的urls
+                    for (let i = 0; i<urls.length; i++) {  // 上传
+                        wx.uploadFile({
+                            url: th.uploadUrl, // 上传地址由自己开发时所需调节
+                            filePath: urls[i],
+                            name: 'file',
+                            header: {
+                                "Content-Type": "multipart/form-data"
+                            },
+                            formData: {
+                                'type': 'wx'
+                            },
+                            success:function(res) {
+                                count++
+                                let data = JSON.parse(res.data)
+                                if (data.code === 0) {
+                                    endUrls.push(data.data)
+                                } else {
+                                    error += (i+1) +','
+                                }
+                                if (count == urls.length) {
+                                    wx.hideToast()
+                                    if (error) {
+                                        wx.showToast({
+                                            title: '第'+ error.substring(0,error.length-1) +'张上传失败',
+                                            icon: 'none',  
+                                            mask: false,  
+                                            duration: 1000
+                                        })
+                                    } else {
+                                            
+                                    }
+                                    resolve(endUrls)
+                                }
+                            },
+                            fail:function(res) {
+                                count++
+                                error += (i+1) +','
+                                if (count == urls.length) {
+                                    wx.hideToast()
+                                    if (error) {
+                                        wx.showToast({
+                                            title: '第'+ error.substring(0,error.length-1) +'张上传失败',
+                                            icon: 'none',  
+                                            mask: false,  
+                                            duration: 1000
+                                        })
+                                    } else {
+                                        
+                                    }
+                                    resolve(endUrls)
+                                }
+                            }
+                        })
+                    }
+                } else {
+                    wx.hideToast()
+                    resolve(urls)
+                }
+            })
+        })
+    }
+    // 父组件调用获取处理后的图片路径
+    getUrls(callback) {
+        callback(this.afterUrls)
+    }
+    methods = {
+        init() {
+            this.imgInfo = []
+            let files = JSON.parse(this.tempFiles)
+            new Promise((resolve)=>{
+                let count = 0;
+                let th = this
+                let Obj = {}
+                files.forEach((item,index) => {
+                    wx.getImageInfo({
+                        src: item.path,
+                        success(res) {
+                            Obj.width = res.width
+                            Obj.height = res.height
+                            Obj.type = res.type == 'jpeg'? 'jpg' : res.type
+                            Obj.path = item.path
+                            Obj.size = item.size
+                            Obj.canvasId = 'canvas' + index
+                            th.imgInfo.push(Obj)
+                            Obj ={}
+                            count++
+                            if (count == files.length) {
+                                resolve()
+                            }
+                        }
+                    })
+                })
+            }).then(()=>{
+                this.$apply()
+                this.compress().then((urls)=>{
+                    this.afterUrls = urls
+                    this.$apply()
+                })
+            })
+        }
+    }
+}
+</script>
+<style lang="less" scoped>
+
+</style>
