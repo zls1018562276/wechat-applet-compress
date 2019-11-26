@@ -1,11 +1,11 @@
 # wechat-applet-compress
-微信小程序多图片压缩工具（失败反馈）<br>
+微信小程序wepy框架多图片压缩工具（失败反馈）<br>
 <br>
 ## 该组件是自主编写的，可能存在bug
 ## 请勿盗用，可转载！！！<br>
 <br>
-微信小程序原生开发：复制dist下的compress.js至自己的项目下<br>
-wepy.js框架开发：复制src/components下的compress.wpy文件至自己的项目下<br>
+
+复制src/components下的compress.wpy文件至自己的项目下<br>
 <br>
 wepy框架父组件引用该组件方式：<br>
 ```javascript
